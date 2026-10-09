@@ -7,6 +7,6 @@ import org.mapstruct.Mapper;
 @Mapper(componentModel = "spring")
 public interface BackupHistoryMapper {
 
-    BackupHistoryEntity toDomain(BackupHistory domain);
-    BackupHistory toEntity(BackupHistoryEntity entity);
+    BackupHistoryEntity toEntity(BackupHistory domain);
+    BackupHistory toDomain(BackupHistoryEntity entity);
 }

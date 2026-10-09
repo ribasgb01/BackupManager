@@ -7,6 +7,6 @@ import org.mapstruct.Mapper;
 @Mapper(componentModel = "spring")
 public interface MarketMapper {
 
-    MarketEntity toDomain(Market domain);
-    Market toEntity(MarketEntity entity);
+    MarketEntity toEntity(Market domain);
+    Market toDomain(MarketEntity entity);
 }
