@@ -6,13 +6,19 @@ import com.microservice.backupmanager.application.gateways.BackupHistoryGateway;
 import com.microservice.backupmanager.application.gateways.FileStorageGateway;
 import com.microservice.backupmanager.application.gateways.MarketGateway;
 import com.microservice.backupmanager.application.usecases.dto.BackupUploadResponse;
+import com.microservice.backupmanager.application.usecases.dto.GetBackupResponse;
 import com.microservice.backupmanager.domain.BackupHistory;
 import com.microservice.backupmanager.domain.Market;
 import com.microservice.backupmanager.domain.enums.BackupStatus;
 import lombok.RequiredArgsConstructor;
+import org.springframework.cglib.core.Local;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 
 import java.time.Duration;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
 import java.util.UUID;
 
@@ -26,10 +32,7 @@ public class BackupHistoryUseCase {
     private static final Duration UPLOAD_URL_EXPIRATION = Duration.ofMinutes(30);
     private static final Duration DOWNLOAD_URL_EXPIRATION = Duration.ofMinutes(15);
 
-    public BackupUploadResponse requestBackupUpload(String apiKey, String fileName, Long fileSizeBytes){
-
-        Market market = marketGateway.findByApiKey(apiKey)
-                .orElseThrow(() -> new EntityNotFoundException("Este mercado não foi encontrado."));
+    public BackupUploadResponse requestBackupUpload(Market market, String fileName, Long fileSizeBytes){
 
         LocalDateTime currentDate = LocalDateTime.now();
         DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd_HH-mm-ss");
@@ -96,5 +99,30 @@ public class BackupHistoryUseCase {
         }
 
         return fileStorageGateway.generateDownloadPresignedUrl(backupHistory.getS3Key(), DOWNLOAD_URL_EXPIRATION);
+    }
+
+    public GetBackupResponse getBackupHistory(UUID marketId, LocalDate startDate, LocalDate endDate, Pageable pageable){
+
+        Market market = marketGateway.findById(marketId)
+                .orElseThrow(() -> new EntityNotFoundException("Mercado não encontrado."));
+
+        if(endDate == null){
+            endDate = LocalDate.now();
+        }
+
+        if(startDate == null){
+            startDate = endDate.minusDays(30);
+        }
+
+        if(startDate.isAfter(endDate)){
+            throw new BusinessRuleException("Data final não pode ser antes da data inicial.");
+        }
+
+        LocalDateTime startDateTime = startDate.atStartOfDay();
+        LocalDateTime endDateTime = endDate.atTime(LocalTime.MAX);
+
+        Page<BackupHistory> backupHistoryPage = backupHistoryGateway.findByPeriod(marketId, startDateTime, endDateTime, pageable);
+
+        return new GetBackupResponse(backupHistoryPage, market.getName());
     }
 }
