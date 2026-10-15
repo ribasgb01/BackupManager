@@ -11,7 +11,6 @@ import com.microservice.backupmanager.domain.BackupHistory;
 import com.microservice.backupmanager.domain.Market;
 import com.microservice.backupmanager.domain.enums.BackupStatus;
 import lombok.RequiredArgsConstructor;
-import org.springframework.cglib.core.Local;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 
@@ -20,6 +19,8 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
+import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 @RequiredArgsConstructor
@@ -29,6 +30,7 @@ public class BackupHistoryUseCase {
     private final FileStorageGateway fileStorageGateway;
     private final MarketGateway marketGateway;
 
+    private static final Duration BACKUP_TOLERANCE_TIME = Duration.ofHours(2);
     private static final Duration UPLOAD_URL_EXPIRATION = Duration.ofMinutes(30);
     private static final Duration DOWNLOAD_URL_EXPIRATION = Duration.ofMinutes(15);
 
@@ -124,5 +126,61 @@ public class BackupHistoryUseCase {
         Page<BackupHistory> backupHistoryPage = backupHistoryGateway.findByPeriod(marketId, startDateTime, endDateTime, pageable);
 
         return new GetBackupResponse(backupHistoryPage, market.getName());
+    }
+
+    public void checkMissedBackups(){
+
+        List<Market> activeMarkets = marketGateway.findAllActive();
+
+        for (Market market : activeMarkets){
+
+            LocalDateTime expectedDateTime = LocalDate.now().atTime(market.getExpectedBackupTime());
+            LocalDateTime deadline = expectedDateTime.plus(BACKUP_TOLERANCE_TIME);
+
+            if (LocalDateTime.now().isBefore(deadline)){
+                continue;
+            }
+
+            Optional<BackupHistory> lastOptionalBackup = backupHistoryGateway.findLatestByMarketId(market.getId());
+
+            if(lastOptionalBackup.isPresent()){
+                BackupHistory lastBackup = lastOptionalBackup.get();
+
+                if(lastBackup.getCreatedAt().toLocalDate().isEqual(LocalDate.now())){
+
+                    if(lastBackup.getStatus() == BackupStatus.SUCCESS){
+                        continue;
+                    }
+
+                    if(lastBackup.getStatus() == BackupStatus.PENDING && LocalDateTime.now().isBefore(lastBackup.getCreatedAt().plus(UPLOAD_URL_EXPIRATION))){
+                        continue;
+                    }
+
+                    if(lastBackup.getStatus() == BackupStatus.FAILED){
+                        continue;
+                    }
+
+                    lastBackup.setStatus(BackupStatus.FAILED);
+                    lastBackup.setCompletedAt(LocalDateTime.now());
+                    lastBackup.setErrorMessage("Tempo limite de upload excedido.");
+                    backupHistoryGateway.save(lastBackup);
+                    continue;
+                }
+            }
+
+            BackupHistory failedBackupHistory = new BackupHistory(
+                    UUID.randomUUID(),
+                    market.getId(),
+                    LocalDateTime.now(),
+                    LocalDateTime.now(),
+                    0L,
+                    null,
+                    "NONE",
+                    BackupStatus.FAILED,
+                    "Tempo limite expirado."
+            );
+
+            backupHistoryGateway.save(failedBackupHistory);
+        }
     }
 }
